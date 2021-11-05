@@ -938,6 +938,11 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
         Stopwatch journalCreationWatcher = Stopwatch.createUnstarted();
         Stopwatch journalFlushWatcher = Stopwatch.createUnstarted();
         long batchSize = 0;
+        // for performance test
+        long bytesIn = 0;
+        long startWriteTimestamp = MathUtils.nowInNano();
+        long nextRecordTimestamp = MathUtils.nowInNano() + 10 * 1000000000;
+
         try {
             List<Long> journalIds = listJournalIds(journalDirectory, null);
             // Should not use MathUtils.now(), which use System.nanoTime() and
@@ -1038,6 +1043,15 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                                 writePaddingBytes(logFile, paddingBuff, journalAlignmentSize);
                             }
                             journalFlushWatcher.reset().start();
+
+                            bytesIn += bc.getNumOfBytesInWriteBuffer();
+                            if (MathUtils.nowInNano() >= nextRecordTimestamp) {
+                                LOG.info("write throughput: {} MB/s",
+                                    bytesIn / ((MathUtils.elapsedNanos(startWriteTimestamp)) / 1000000000.0)
+                                        / (1024 * 1024));
+                                nextRecordTimestamp = MathUtils.nowInNano() + 10 * 1000000000;
+                            }
+
                             bc.flush();
 
                             for (int i = 0; i < toFlush.size(); i++) {
