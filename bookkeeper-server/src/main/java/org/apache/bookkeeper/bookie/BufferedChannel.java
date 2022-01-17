@@ -30,10 +30,12 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.concurrent.atomic.AtomicLong;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Provides a buffering layer in front of a FileChannel.
  */
+@Slf4j
 public class BufferedChannel extends BufferedReadChannel implements Closeable {
     /**
      * The capacity of the write buffer.

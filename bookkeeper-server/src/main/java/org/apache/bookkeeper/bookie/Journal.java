@@ -596,6 +596,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     final File journalDirectory;
     final ServerConfiguration conf;
     final ForceWriteThread forceWriteThread;
+
+    private FileChannelProvider fileChannelProvider;
     // Time after which we will stop grouping and issue the flush
     private final long maxGroupWaitInNanos;
     // Threshold after which we flush any buffered journal entries
@@ -698,6 +700,14 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             LOG.debug("Last Log Mark : {}", lastLogMark.getCurMark());
         }
 
+        try {
+            this.fileChannelProvider = FileChannelProvider.newProvider(conf.getJournalChannelProvider());
+        } catch (IOException e) {
+            LOG.warn("Failed to initiate {}, use default fileSystem provider instead.",
+                conf.getJournalChannelProvider());
+            this.fileChannelProvider = new DefaultFileChannelProvider();
+        }
+
         // Expose Stats
         this.journalStats = new JournalStats(statsLogger);
     }
@@ -782,10 +792,10 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
         throws IOException {
         JournalChannel recLog;
         if (journalPos <= 0) {
-            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize, conf);
+            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize, conf, fileChannelProvider);
         } else {
             recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize,
-                    journalPos, conf);
+                    journalPos, conf, fileChannelProvider);
         }
         int journalVersion = recLog.getFormatVersion();
         try {
@@ -916,7 +926,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
      */
     @Override
     public void run() {
-        LOG.info("Starting journal on {}", journalDirectory);
+        LOG.info("Starting journal xxx on {}", journalDirectory);
 
         if (conf.isBusyWaitEnabled()) {
             try {
@@ -955,12 +965,13 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 // new journal file to write
                 if (null == logFile) {
 
-                    logId = logId + 1;
+                    logId = (logId + 1) % 10;
 
                     journalCreationWatcher.reset().start();
+                    LOG.error("Start generate new journal log file.");
                     logFile = new JournalChannel(journalDirectory, logId, journalPreAllocSize, journalWriteBufferSize,
                                         journalAlignmentSize, removePagesFromCache,
-                                        journalFormatVersionToWrite, getBufferedChannelBuilder(), conf);
+                                        journalFormatVersionToWrite, getBufferedChannelBuilder(), conf, fileChannelProvider);
 
                     journalStats.getJournalCreationStats().registerSuccessfulEvent(
                             journalCreationWatcher.stop().elapsed(TimeUnit.NANOSECONDS), TimeUnit.NANOSECONDS);
@@ -969,6 +980,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
 
                     lastFlushPosition = bc.position();
                 }
+                //LOG.error("queue size: {}, qe: {}:{}", queue.size(), qe.ledgerId, qe.entryId);
 
                 if (qe == null) {
                     if (dequeueStartTime != 0) {
@@ -1033,6 +1045,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                         }
 
                         // toFlush is non null and not empty so should be safe to access getFirst
+                        //LOG.error("[hangc] shouldFlush: {}", shouldFlush);
                         if (shouldFlush) {
                             if (journalFormatVersionToWrite >= JournalChannel.V5) {
                                 writePaddingBytes(logFile, paddingBuff, journalAlignmentSize);
@@ -1078,10 +1091,13 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                             //   synchronize frequently, which will increase disk io util.
                             //   when flush interval reaches journalPageCacheFlushIntervalMSec (default: 1s),
                             //   it will trigger data sync to disk
+                            //LOG.error("[hangc] shouldRolloverJournal: {}, lastFlushPosition: {}, maxJournalSize: {}",
+                            //    shouldRolloverJournal, lastFlushPosition, maxJournalSize);
                             if (syncData
                                     || shouldRolloverJournal
                                     || (System.currentTimeMillis() - lastFlushTimeMs
                                     >= journalPageCacheFlushIntervalMSec)) {
+                                //LOG.error("[hangc] generate forceWriteRequests...");
                                 forceWriteRequests.put(createForceWriteRequest(logFile, logId, lastFlushPosition,
                                         toFlush, shouldRolloverJournal, false));
                                 lastFlushTimeMs = System.currentTimeMillis();
