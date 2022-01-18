@@ -928,7 +928,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
      */
     @Override
     public void run() {
-        LOG.info("Starting journal xxx on {}", journalDirectory);
+        LOG.info("Starting journal on {}", journalDirectory);
 
         if (conf.isBusyWaitEnabled()) {
             try {
@@ -1051,7 +1051,6 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                         }
 
                         // toFlush is non null and not empty so should be safe to access getFirst
-                        //LOG.error("[hangc] shouldFlush: {}", shouldFlush);
                         if (shouldFlush) {
                             if (journalFormatVersionToWrite >= JournalChannel.V5) {
                                 writePaddingBytes(logFile, paddingBuff, journalAlignmentSize);
@@ -1097,13 +1096,10 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                             //   synchronize frequently, which will increase disk io util.
                             //   when flush interval reaches journalPageCacheFlushIntervalMSec (default: 1s),
                             //   it will trigger data sync to disk
-                            //LOG.error("[hangc] shouldRolloverJournal: {}, lastFlushPosition: {}, maxJournalSize: {}",
-                            //    shouldRolloverJournal, lastFlushPosition, maxJournalSize);
                             if (syncData
                                     || shouldRolloverJournal
                                     || (System.currentTimeMillis() - lastFlushTimeMs
                                     >= journalPageCacheFlushIntervalMSec)) {
-                                //LOG.error("[hangc] generate forceWriteRequests...");
                                 forceWriteRequests.put(createForceWriteRequest(logFile, logId, lastFlushPosition,
                                         toFlush, shouldRolloverJournal, false));
                                 lastFlushTimeMs = System.currentTimeMillis();
