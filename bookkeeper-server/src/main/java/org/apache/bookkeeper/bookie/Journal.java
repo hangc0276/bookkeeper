@@ -635,6 +635,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     private final LedgerDirsManager ledgerDirsManager;
     private final ByteBufAllocator allocator;
     private final MemoryLimitController memoryLimitController;
+    private final int journalMaxPoolSize;
 
     // Expose Stats
     private final JournalStats journalStats;
@@ -707,6 +708,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 conf.getJournalChannelProvider());
             this.fileChannelProvider = new DefaultFileChannelProvider();
         }
+        this.journalMaxPoolSize = conf.getJournalMaxPoolSize();
 
         // Expose Stats
         this.journalStats = new JournalStats(statsLogger);
@@ -965,10 +967,14 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 // new journal file to write
                 if (null == logFile) {
 
-                    logId = (logId + 1) % 10;
+                    if (fileChannelProvider instanceof DefaultFileChannelProvider) {
+                        logId = logId + 1;
+                    } else {
+                        logId = (logId + 1) % journalMaxPoolSize;
+                    }
 
                     journalCreationWatcher.reset().start();
-                    LOG.error("Start generate new journal log file.");
+                    LOG.info("Start generate new journal log file.");
                     logFile = new JournalChannel(journalDirectory, logId, journalPreAllocSize, journalWriteBufferSize,
                                         journalAlignmentSize, removePagesFromCache,
                                         journalFormatVersionToWrite, getBufferedChannelBuilder(), conf, fileChannelProvider);
