@@ -196,73 +196,74 @@ class JournalChannel implements Closeable {
             nextPrealloc = this.preAllocSize;
             fc.write(zeros, nextPrealloc - journalAlignSize);
         } else {  // open an existing file
-            // rewrite the existing file
-            fc = channel.getFileChannel();
-            formatVersion = formatVersionToWrite;
+            if (channel instanceof DefaultFileChannel) {
+                fc = channel.getFileChannel();
+                bc = null; // readonly
 
-            int headerSize = (V4 == formatVersion) ? VERSION_HEADER_SIZE : HEADER_SIZE;
-            ByteBuffer bb = ByteBuffer.allocate(headerSize);
-            ZeroBuffer.put(bb);
-            bb.clear();
-            bb.put(magicWord);
-            bb.putInt(formatVersion);
-            bb.clear();
-            fc.write(bb);
+                ByteBuffer bb = ByteBuffer.allocate(VERSION_HEADER_SIZE);
+                int c = fc.read(bb);
+                bb.flip();
 
-            bc = bcBuilder.create(fc, writeBufferSize);
-            forceWrite(true);
-            nextPrealloc = this.preAllocSize;
-            fc.write(zeros, nextPrealloc - journalAlignSize);
-            /*
-            fc = channel.getFileChannel();
-            bc = null; // readonly
+                if (c == VERSION_HEADER_SIZE) {
+                    byte[] first4 = new byte[4];
+                    bb.get(first4);
 
-            ByteBuffer bb = ByteBuffer.allocate(VERSION_HEADER_SIZE);
-            int c = fc.read(bb);
-            bb.flip();
-
-            if (c == VERSION_HEADER_SIZE) {
-                byte[] first4 = new byte[4];
-                bb.get(first4);
-
-                if (Arrays.equals(first4, magicWord)) {
-                    formatVersion = bb.getInt();
-                } else {
-                    // pre magic word journal, reset to 0;
-                    formatVersion = V1;
-                }
-            } else {
-                // no header, must be old version
-                formatVersion = V1;
-            }
-
-            if (formatVersion < MIN_COMPAT_JOURNAL_FORMAT_VERSION
-                || formatVersion > CURRENT_JOURNAL_FORMAT_VERSION) {
-                String err = String.format("Invalid journal version, unable to read."
-                        + " Expected between (%d) and (%d), got (%d)",
-                        MIN_COMPAT_JOURNAL_FORMAT_VERSION, CURRENT_JOURNAL_FORMAT_VERSION,
-                        formatVersion);
-                LOG.error(err);
-                throw new IOException(err);
-            }
-
-            try {
-                if (position == START_OF_FILE) {
-                    if (formatVersion >= V5) {
-                        fc.position(HEADER_SIZE);
-                    } else if (formatVersion >= V2) {
-                        fc.position(VERSION_HEADER_SIZE);
+                    if (Arrays.equals(first4, magicWord)) {
+                        formatVersion = bb.getInt();
                     } else {
-                        fc.position(0);
+                        // pre magic word journal, reset to 0;
+                        formatVersion = V1;
                     }
                 } else {
-                    fc.position(position);
+                    // no header, must be old version
+                    formatVersion = V1;
                 }
-            } catch (IOException e) {
-                LOG.error("Bookie journal file can seek to position :", e);
-                throw e;
+
+                if (formatVersion < MIN_COMPAT_JOURNAL_FORMAT_VERSION
+                    || formatVersion > CURRENT_JOURNAL_FORMAT_VERSION) {
+                    String err = String.format("Invalid journal version, unable to read."
+                            + " Expected between (%d) and (%d), got (%d)",
+                        MIN_COMPAT_JOURNAL_FORMAT_VERSION, CURRENT_JOURNAL_FORMAT_VERSION,
+                        formatVersion);
+                    LOG.error(err);
+                    throw new IOException(err);
+                }
+
+                try {
+                    if (position == START_OF_FILE) {
+                        if (formatVersion >= V5) {
+                            fc.position(HEADER_SIZE);
+                        } else if (formatVersion >= V2) {
+                            fc.position(VERSION_HEADER_SIZE);
+                        } else {
+                            fc.position(0);
+                        }
+                    } else {
+                        fc.position(position);
+                    }
+                } catch (IOException e) {
+                    LOG.error("Bookie journal file can seek to position :", e);
+                    throw e;
+                }
+            } else {
+                // rewrite the existing file
+                fc = channel.getFileChannel();
+                formatVersion = formatVersionToWrite;
+
+                int headerSize = (V4 == formatVersion) ? VERSION_HEADER_SIZE : HEADER_SIZE;
+                ByteBuffer bb = ByteBuffer.allocate(headerSize);
+                ZeroBuffer.put(bb);
+                bb.clear();
+                bb.put(magicWord);
+                bb.putInt(formatVersion);
+                bb.clear();
+                fc.write(bb);
+
+                bc = bcBuilder.create(fc, writeBufferSize);
+                forceWrite(true);
+                nextPrealloc = this.preAllocSize;
+                fc.write(zeros, nextPrealloc - journalAlignSize);
             }
-            */
         }
         if (fRemoveFromPageCache) {
             this.fd = NativeIO.getSysFileDescriptor(channel.getFD());
