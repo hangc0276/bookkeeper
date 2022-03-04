@@ -118,7 +118,6 @@ class SyncThread implements Checkpointer {
     private void flush() {
         Checkpoint checkpoint = checkpointSource.newCheckpoint();
         try {
-            log.info("[hangc] syncThread flush...");
             ledgerStorage.flush();
         } catch (NoWritableLedgerDirException e) {
             log.error("No writeable ledger directories", e);
@@ -150,9 +149,7 @@ class SyncThread implements Checkpointer {
         }
 
         try {
-            log.info("[hangc] SyncThread start ...");
             ledgerStorage.checkpoint(checkpoint);
-            log.info("[hangc] SyncThread completed ...");
         } catch (NoWritableLedgerDirException e) {
             log.error("No writeable ledger directories", e);
             dirsListener.allDisksFull(true);

@@ -616,6 +616,9 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     // Should data be fsynced on disk before triggering the callback
     private final boolean syncData;
 
+    // Whether should we reuse journal files.
+    private final boolean reuseJournalFiles;
+
     private final LastLogMark lastLogMark = new LastLogMark(0, 0);
 
     private static final String LAST_MARK_DEFAULT_NAME = "lastMark";
@@ -635,7 +638,6 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     private final LedgerDirsManager ledgerDirsManager;
     private final ByteBufAllocator allocator;
     private final MemoryLimitController memoryLimitController;
-    private final int journalMaxPoolSize;
 
     // Expose Stats
     private final JournalStats journalStats;
@@ -678,6 +680,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
         this.journalFormatVersionToWrite = conf.getJournalFormatVersionToWrite();
         this.journalAlignmentSize = conf.getJournalAlignmentSize();
         this.journalPageCacheFlushIntervalMSec = conf.getJournalPageCacheFlushIntervalMSec();
+        this.reuseJournalFiles = conf.getJournalReuseFiles();
         if (conf.getNumJournalCallbackThreads() > 0) {
             this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumJournalCallbackThreads(),
                                                          new DefaultThreadFactory("bookie-journal-callback"));
@@ -708,7 +711,6 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 conf.getJournalChannelProvider());
             throw new RuntimeException("Failed to initiate fileChannel provider");
         }
-        this.journalMaxPoolSize = conf.getJournalMaxPoolSize();
 
         // Expose Stats
         this.journalStats = new JournalStats(statsLogger);
@@ -793,6 +795,10 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     public long scanJournal(long journalId, long journalPos, JournalScanner scanner)
         throws IOException {
         JournalChannel recLog;
+        if (reuseJournalFiles) {
+            journalId = journalId % maxBackupJournals;
+        }
+
         if (journalPos <= 0) {
             recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize, conf, fileChannelProvider);
         } else {
@@ -810,7 +816,6 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 // start reading entry
                 lenBuff.clear();
                 fullRead(recLog, lenBuff);
-                LOG.info("[hangc] offset: {}, remaining: {}", offset, lenBuff.remaining());
                 if (lenBuff.remaining() == 0) {
                     break;
                 }
@@ -818,7 +823,6 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 lenBuff.flip();
                 int len = lenBuff.getInt();
 
-                LOG.info("[hangc]offset: {}, len: {}", offset, len);
                 if (len == 0) {
                     break;
                 }
@@ -961,6 +965,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             // could only be used to measure elapsed time.
             // http://docs.oracle.com/javase/1.5.0/docs/api/java/lang/System.html#nanoTime%28%29
             long logId = journalIds.isEmpty() ? System.currentTimeMillis() : journalIds.get(journalIds.size() - 1);
+            long actualLogId;
             long lastFlushPosition = 0;
             boolean groupWhenTimeout = false;
 
@@ -971,16 +976,16 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             while (true) {
                 // new journal file to write
                 if (null == logFile) {
-
-                    if (fileChannelProvider instanceof DefaultFileChannelProvider) {
-                        logId = logId + 1;
+                    logId = logId + 1;
+                    if (reuseJournalFiles) {
+                        actualLogId = logId % maxBackupJournals;
                     } else {
-                        logId = (logId + 1) % journalMaxPoolSize;
+                        actualLogId = logId;
                     }
 
                     journalCreationWatcher.reset().start();
                     LOG.info("Start generate new journal log file.");
-                    logFile = new JournalChannel(journalDirectory, logId, journalPreAllocSize, journalWriteBufferSize,
+                    logFile = new JournalChannel(journalDirectory, actualLogId, journalPreAllocSize, journalWriteBufferSize,
                                         journalAlignmentSize, removePagesFromCache,
                                         journalFormatVersionToWrite, getBufferedChannelBuilder(), conf, fileChannelProvider);
                     logFile.writeHeader();
