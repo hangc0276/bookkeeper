@@ -799,6 +799,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize,
                     journalPos, conf, fileChannelProvider);
         }
+        recLog.skipHeader();
         int journalVersion = recLog.getFormatVersion();
         try {
             ByteBuffer lenBuff = ByteBuffer.allocate(4);
@@ -809,11 +810,15 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 // start reading entry
                 lenBuff.clear();
                 fullRead(recLog, lenBuff);
-                if (lenBuff.remaining() != 0) {
+                LOG.info("[hangc] offset: {}, remaining: {}", offset, lenBuff.remaining());
+                if (lenBuff.remaining() == 0) {
                     break;
                 }
+
                 lenBuff.flip();
                 int len = lenBuff.getInt();
+
+                LOG.info("[hangc]offset: {}, len: {}", offset, len);
                 if (len == 0) {
                     break;
                 }
@@ -978,6 +983,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                     logFile = new JournalChannel(journalDirectory, logId, journalPreAllocSize, journalWriteBufferSize,
                                         journalAlignmentSize, removePagesFromCache,
                                         journalFormatVersionToWrite, getBufferedChannelBuilder(), conf, fileChannelProvider);
+                    logFile.writeHeader();
 
                     journalStats.getJournalCreationStats().registerSuccessfulEvent(
                             journalCreationWatcher.stop().elapsed(TimeUnit.NANOSECONDS), TimeUnit.NANOSECONDS);

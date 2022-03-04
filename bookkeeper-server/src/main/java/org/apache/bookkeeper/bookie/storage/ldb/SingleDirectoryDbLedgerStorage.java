@@ -359,6 +359,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 log.info("Write cache is full, triggering flush");
                 executor.execute(() -> {
                         try {
+                            log.info("[hangc] full write cache...");
                             flush();
                         } catch (IOException e) {
                             log.error("Error during flush", e);
@@ -366,17 +367,22 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                     });
             }
 
+            log.info("[hangc] request write lock...");
             long stamp = writeCacheRotationLock.readLock();
             try {
+                log.info("[hangc] get write lock...");
                 if (writeCache.put(ledgerId, entryId, entry)) {
                     // We succeeded in putting the entry in write cache in the
+                    log.info("[hangc] put complete...");
                     return;
                 }
             } finally {
+                log.info("[hangc] release write lock...");
                 writeCacheRotationLock.unlockRead(stamp);
             }
 
             // Wait some time and try again
+            log.info("[hangc] go into sleep...");
             try {
                 Thread.sleep(1);
             } catch (InterruptedException e) {
@@ -581,10 +587,15 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     @Override
     public void checkpoint(Checkpoint checkpoint) throws IOException {
+        log.info("[hangc] aaa");
         Checkpoint thisCheckpoint = checkpointSource.newCheckpoint();
+        /*
         if (lastCheckpoint.compareTo(checkpoint) > 0) {
+            log.info("[hangc] xxx");
+            log.info("[hangc] lastCheckpoint: {}, checkpoint: {}, this checkpoint: {}",
+                lastCheckpoint, checkpoint, thisCheckpoint);
             return;
-        }
+        }*/
 
         long startTime = MathUtils.nowInNano();
 
@@ -592,10 +603,12 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         flushMutex.lock();
 
         try {
+            log.info("[hangc] bbb");
             // Swap the write cache so that writes can continue to happen while the flush is
             // ongoing
             swapWriteCache();
 
+            log.info("[hangc] ccc");
             long sizeToFlush = writeCacheBeingFlushed.size();
             if (log.isDebugEnabled()) {
                 log.debug("Flushing entries. count: {} -- size {} Mb", writeCacheBeingFlushed.count(),
@@ -614,8 +627,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                     throw new RuntimeException(e);
                 }
             });
+            log.info("[hangc] ddd");
 
             entryLogger.flush();
+
+            log.info("[hangc] eee");
 
             long batchFlushStarTime = System.nanoTime();
             batch.flush();
@@ -624,9 +640,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 log.debug("DB batch flushed time : {} s",
                         MathUtils.elapsedNanos(batchFlushStarTime) / (double) TimeUnit.SECONDS.toNanos(1));
             }
+            log.info("[hangc] fff");
 
             ledgerIndex.flush();
 
+            log.info("[hangc] ggg");
             cleanupExecutor.execute(() -> {
                 // There can only be one single cleanup task running because the cleanupExecutor
                 // is single-threaded
@@ -656,6 +674,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             recordSuccessfulEvent(dbLedgerStorageStats.getFlushStats(), startTime);
             dbLedgerStorageStats.getFlushSizeStats().registerSuccessfulValue(sizeToFlush);
+            log.info("[hangc] hhh");
         } catch (IOException e) {
             // Leave IOExecption as it is
             throw e;
@@ -696,9 +715,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     @Override
     public void flush() throws IOException {
+        log.info("[hangc] flush...");
         Checkpoint cp = checkpointSource.newCheckpoint();
         checkpoint(cp);
         checkpointSource.checkpointComplete(cp, true);
+        log.info("[hangc] flush completed...");
     }
 
     @Override
@@ -737,6 +758,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     @Override
     public void updateEntriesLocations(Iterable<EntryLocation> locations) throws IOException {
         // Trigger a flush to have all the entries being compacted in the db storage
+        log.info("[hangc] updateEntriesLocations....");
         flush();
 
         entryLocationIndex.updateLocations(locations);

@@ -228,7 +228,9 @@ public class DbLedgerStorage implements LedgerStorage {
     @Override
     public void checkpoint(Checkpoint checkpoint) throws IOException {
         for (LedgerStorage ls : ledgerStorageList) {
+            log.info("[hangc] DbLedgerStorage start...");
             ls.checkpoint(checkpoint);
+            log.info("[hangc] DbLedgerStorage completed...");
         }
     }
 
