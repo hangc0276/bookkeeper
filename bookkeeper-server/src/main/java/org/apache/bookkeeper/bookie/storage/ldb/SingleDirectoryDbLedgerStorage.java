@@ -582,6 +582,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     @Override
     public void checkpoint(Checkpoint checkpoint) throws IOException {
         Checkpoint thisCheckpoint = checkpointSource.newCheckpoint();
+
         if (lastCheckpoint.compareTo(checkpoint) > 0) {
             return;
         }
@@ -624,7 +625,6 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 log.debug("DB batch flushed time : {} s",
                         MathUtils.elapsedNanos(batchFlushStarTime) / (double) TimeUnit.SECONDS.toNanos(1));
             }
-
             ledgerIndex.flush();
 
             cleanupExecutor.execute(() -> {

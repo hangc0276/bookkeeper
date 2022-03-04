@@ -148,7 +148,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String JOURNAL_MAX_MEMORY_SIZE_MB = "journalMaxMemorySizeMb";
     protected static final String JOURNAL_PAGECACHE_FLUSH_INTERVAL_MSEC = "journalPageCacheFlushIntervalMSec";
     protected static final String JOURNAL_CHANNEL_PROVIDER = "journalChannelProvider";
-    protected static final String JOURNAL_MAX_POOL_SIZE = "journalMaxPoolSize";
+    protected static final String JOURNAL_REUSE_FILES = "journalReuseFiles";
     // backpressure control
     protected static final String MAX_ADDS_IN_PROGRESS_LIMIT = "maxAddsInProgressLimit";
     protected static final String MAX_READS_IN_PROGRESS_LIMIT = "maxReadsInProgressLimit";
@@ -718,19 +718,22 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     }
 
     /**
-     * Journal max pool size.
-     *
-     * @return journal max pool size
+     * Get reuse journal files.
+     * @return
      */
-    public int getJournalMaxPoolSize() {
-        return this.getInt(JOURNAL_MAX_POOL_SIZE, 50);
+    public boolean getJournalReuseFiles() {
+        return this.getBoolean(JOURNAL_REUSE_FILES, false);
     }
 
-    public ServerConfiguration setJournalMaxPoolSize(int journalMaxPoolSize) {
-        this.setProperty(JOURNAL_MAX_POOL_SIZE, Integer.toString(journalMaxPoolSize));
+    /**
+     * Set reuse journal files.
+     * @param journalReuseFiles
+     * @return
+     */
+    public ServerConfiguration setJournalReuseFiles(boolean journalReuseFiles) {
+        setProperty(JOURNAL_REUSE_FILES, journalReuseFiles);
         return this;
     }
-
     /**
      * How much space should we pre-allocate at a time in the journal.
      *
