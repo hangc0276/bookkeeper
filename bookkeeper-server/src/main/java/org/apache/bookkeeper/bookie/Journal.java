@@ -800,7 +800,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
         }
 
         if (journalPos <= 0) {
-            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize, conf, fileChannelProvider);
+            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize,
+                conf, fileChannelProvider);
         } else {
             recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize,
                     journalPos, conf, fileChannelProvider);
@@ -985,9 +986,9 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
 
                     journalCreationWatcher.reset().start();
                     LOG.info("Start generate new journal log file.");
-                    logFile = new JournalChannel(journalDirectory, actualLogId, journalPreAllocSize, journalWriteBufferSize,
-                                        journalAlignmentSize, removePagesFromCache,
-                                        journalFormatVersionToWrite, getBufferedChannelBuilder(), conf, fileChannelProvider);
+                    logFile = new JournalChannel(journalDirectory, actualLogId, journalPreAllocSize,
+                        journalWriteBufferSize, journalAlignmentSize, removePagesFromCache,
+                        journalFormatVersionToWrite, getBufferedChannelBuilder(), conf, fileChannelProvider);
                     logFile.writeHeader();
 
                     journalStats.getJournalCreationStats().registerSuccessfulEvent(
