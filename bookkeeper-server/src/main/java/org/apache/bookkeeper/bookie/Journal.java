@@ -817,7 +817,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 // start reading entry
                 lenBuff.clear();
                 fullRead(recLog, lenBuff);
-                if (lenBuff.remaining() == 0) {
+                if (lenBuff.remaining() != 0) {
                     break;
                 }
 
@@ -1079,7 +1079,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                                 }
                             }
 
-                            lastFlushPosition = bc.position();
+                            //lastFlushPosition = bc.position();
+                            lastFlushPosition = bc.getFileChannelPosition();
                             journalStats.getJournalFlushStats().registerSuccessfulEvent(
                                     journalFlushWatcher.stop().elapsed(TimeUnit.NANOSECONDS), TimeUnit.NANOSECONDS);
 

@@ -322,10 +322,6 @@ class JournalChannel implements Closeable {
         if (channel != null) {
             channel.close();
         }
-
-        if (fileChannelProvider != null) {
-            fileChannelProvider.close();
-        }
     }
 
     public void forceWrite(boolean forceMetadata) throws IOException {
