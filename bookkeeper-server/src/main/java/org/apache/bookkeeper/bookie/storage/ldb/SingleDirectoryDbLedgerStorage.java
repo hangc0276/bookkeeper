@@ -257,9 +257,10 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     @Override
     public void shutdown() throws InterruptedException {
         try {
+            gcThread.shutdown();
+
             flush();
 
-            gcThread.shutdown();
             entryLogger.shutdown();
 
             cleanupExecutor.shutdown();
