@@ -612,6 +612,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     private final int journalAlignmentSize;
     // control PageCache flush interval when syncData disabled to reduce disk io util
     private final long journalPageCacheFlushIntervalMSec;
+    // Whether reuse journal files, it will use maxBackupJournal as the journal file pool.
+    private final boolean journalReuseFiles;
 
     // Should data be fsynced on disk before triggering the callback
     private final boolean syncData;
@@ -677,6 +679,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
         this.journalFormatVersionToWrite = conf.getJournalFormatVersionToWrite();
         this.journalAlignmentSize = conf.getJournalAlignmentSize();
         this.journalPageCacheFlushIntervalMSec = conf.getJournalPageCacheFlushIntervalMSec();
+        this.journalReuseFiles = conf.getJournalReuseFiles();
         if (conf.getNumJournalCallbackThreads() > 0) {
             this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumJournalCallbackThreads(),
                                                          new DefaultThreadFactory("bookie-journal-callback"));
@@ -790,6 +793,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     public long scanJournal(long journalId, long journalPos, JournalScanner scanner)
         throws IOException {
         JournalChannel recLog;
+        journalId = journalReuseFiles ? journalId % maxBackupJournals : journalId;
+
         if (journalPos <= 0) {
             recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize,
                 conf, fileChannelProvider);
@@ -797,6 +802,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize,
                     journalPos, conf, fileChannelProvider);
         }
+        recLog.skipHeader();
+
         int journalVersion = recLog.getFormatVersion();
         try {
             ByteBuffer lenBuff = ByteBuffer.allocate(4);
@@ -954,6 +961,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             // could only be used to measure elapsed time.
             // http://docs.oracle.com/javase/1.5.0/docs/api/java/lang/System.html#nanoTime%28%29
             long logId = journalIds.isEmpty() ? System.currentTimeMillis() : journalIds.get(journalIds.size() - 1);
+            long actualLogId;
             long lastFlushPosition = 0;
             boolean groupWhenTimeout = false;
 
@@ -964,21 +972,22 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             while (true) {
                 // new journal file to write
                 if (null == logFile) {
-
                     logId = logId + 1;
+                    actualLogId = journalReuseFiles ? logId % maxBackupJournals : logId;
 
                     journalCreationWatcher.reset().start();
-                    logFile = new JournalChannel(journalDirectory, logId, journalPreAllocSize, journalWriteBufferSize,
+                    logFile = new JournalChannel(journalDirectory, actualLogId, journalPreAllocSize, journalWriteBufferSize,
                                         journalAlignmentSize, removePagesFromCache,
                                         journalFormatVersionToWrite, getBufferedChannelBuilder(),
                                         conf, fileChannelProvider);
+                    logFile.writeHeader();
 
                     journalStats.getJournalCreationStats().registerSuccessfulEvent(
                             journalCreationWatcher.stop().elapsed(TimeUnit.NANOSECONDS), TimeUnit.NANOSECONDS);
 
                     bc = logFile.getBufferedChannel();
 
-                    lastFlushPosition = bc.position();
+                    lastFlushPosition = bc.getFileChannelPosition();
                 }
 
                 if (qe == null) {
@@ -1060,7 +1069,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                                 }
                             }
 
-                            lastFlushPosition = bc.position();
+                            lastFlushPosition = bc.getFileChannelPosition();
                             journalStats.getJournalFlushStats().registerSuccessfulEvent(
                                     journalFlushWatcher.stop().elapsed(TimeUnit.NANOSECONDS), TimeUnit.NANOSECONDS);
 
