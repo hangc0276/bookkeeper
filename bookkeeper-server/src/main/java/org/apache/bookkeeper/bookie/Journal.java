@@ -975,7 +975,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                     actualLogId = journalReuseFiles ? logId % maxBackupJournals : logId;
 
                     journalCreationWatcher.reset().start();
-                    logFile = new JournalChannel(journalDirectory, actualLogId, journalPreAllocSize, journalWriteBufferSize,
+                    logFile = new JournalChannel(journalDirectory, actualLogId, journalPreAllocSize,
+                                        journalWriteBufferSize,
                                         journalAlignmentSize, removePagesFromCache,
                                         journalFormatVersionToWrite, getBufferedChannelBuilder(),
                                         conf, fileChannelProvider);
