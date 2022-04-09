@@ -973,8 +973,10 @@ public class Bookie extends BookieCriticalThread {
      */
     private void replay(Journal journal, JournalScanner scanner) throws IOException {
         final LogMark markedLog = journal.getLastLogMark().getCurMark();
+        long markedLogFileId = conf.getJournalReuseFiles()
+            ? markedLog.getLogFileId() % journal.maxBackupJournals : markedLog.getLogFileId();
         List<Long> logs = Journal.listJournalIds(journal.getJournalDirectory(), journalId ->
-            journalId >= markedLog.getLogFileId());
+            journalId >= markedLogFileId);
         // last log mark may be missed due to no sync up before
         // validate filtered log ids only when we have markedLogId
         if (markedLog.getLogFileId() > 0) {

@@ -793,7 +793,6 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     public long scanJournal(long journalId, long journalPos, JournalScanner scanner)
         throws IOException {
         JournalChannel recLog;
-        journalId = journalReuseFiles ? journalId % maxBackupJournals : journalId;
 
         if (journalPos <= 0) {
             recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize,
