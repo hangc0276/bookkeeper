@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.apache.bookkeeper.common.collections;
 
 import java.util.AbstractQueue;
@@ -14,29 +32,29 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
-public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implements BlockingQueue<T> {
+public class LockOptimizedArrayBlockingQueue<T> extends AbstractQueue<T> implements BlockingQueue<T> {
 
     private final ReentrantLock headLock = new ReentrantLock();
-    private final PaddedInt headIndex = new PaddedInt();
-    private final PaddedInt tailIndex = new PaddedInt();
+    private int headIndex;
+    private int tailIndex;
     private final ReentrantLock tailLock = new ReentrantLock();
     private final Condition isNotEmpty = headLock.newCondition();
     private final Condition isNotFull = tailLock.newCondition();
     private final T[] data;
 
     @SuppressWarnings("rawtypes")
-    private static final AtomicIntegerFieldUpdater<StampedLockArrayBlockingQueue> SIZE_UPDATER =
-        AtomicIntegerFieldUpdater.newUpdater(StampedLockArrayBlockingQueue.class, "size");
+    private static final AtomicIntegerFieldUpdater<LockOptimizedArrayBlockingQueue> SIZE_UPDATER =
+        AtomicIntegerFieldUpdater.newUpdater(LockOptimizedArrayBlockingQueue.class, "size");
     private volatile int size = 0;
 
     @SuppressWarnings("unchecked")
-    public StampedLockArrayBlockingQueue(int capacity) {
+    public LockOptimizedArrayBlockingQueue(int capacity) {
         if (capacity <= 0) {
             throw new IllegalArgumentException("capacity should greater than 0");
         }
         this.data = (T[]) new Object[capacity];
-        headIndex.value = 0;
-        tailIndex.value = 0;
+        headIndex = 0;
+        tailIndex = 0;
     }
 
     @Override
@@ -52,15 +70,35 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
     @Override
     public T poll() {
         headLock.lock();
+        boolean wasFull = false;
+        T item;
         try {
             if (SIZE_UPDATER.get(this) > 0) {
-                return dequeue();
+                item = data[headIndex];
+                data[headIndex] = null;
+                if (++headIndex == data.length) {
+                    headIndex = 0;
+                }
+                if (SIZE_UPDATER.getAndDecrement(this) == data.length) {
+                    wasFull = true;
+                }
             } else {
                 return null;
             }
         } finally {
             headLock.unlock();
         }
+
+        if (wasFull) {
+            tailLock.lock();
+            try {
+                isNotFull.signal();
+            } finally {
+                tailLock.unlock();
+            }
+        }
+
+        return item;
     }
 
     @Override
@@ -78,7 +116,7 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
         headLock.lock();
         try {
             if (SIZE_UPDATER.get(this) > 0) {
-                return data[headIndex.value];
+                return data[headIndex];
             } else {
                 return null;
             }
@@ -87,51 +125,66 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
         }
     }
 
-    private void enqueue(T e) {
-        data[tailIndex.value] = e;
-        tailIndex.value = (tailIndex.value + 1) & (data.length - 1);
-        if (SIZE_UPDATER.getAndIncrement(this) == 0) {
-            isNotEmpty.signal();
-        }
-    }
-
-    protected T dequeue() {
-        T item = data[headIndex.value];
-        data[headIndex.value] = null;
-        headIndex.value = (headIndex.value + 1) & (data.length - 1);
-        if (SIZE_UPDATER.decrementAndGet(this) > 0) {
-            isNotEmpty.signal();
-        }
-        return item;
-    }
-
     @Override
     public boolean offer(T e) {
         checkNotNull(e);
         tailLock.lock();
+        boolean wasEmpty = false;
         try {
             if (SIZE_UPDATER.get(this) == data.length) {
                 return false;
             } else {
-                enqueue(e);
-                return true;
+                data[tailIndex] = e;
+                if (++tailIndex == data.length) {
+                    tailIndex = 0;
+                }
+                if (SIZE_UPDATER.getAndIncrement(this) == 0) {
+                    wasEmpty = true;
+                }
             }
         } finally {
             tailLock.unlock();
         }
+
+        if (wasEmpty) {
+            headLock.lock();
+            try {
+                isNotEmpty.signal();
+            } finally {
+                headLock.unlock();
+            }
+        }
+        return true;
     }
 
     @Override
     public void put(T e) throws InterruptedException {
         checkNotNull(e);
         tailLock.lockInterruptibly();
+        boolean wasEmpty = false;
         try {
             while (SIZE_UPDATER.get(this) == data.length) {
                 isNotFull.await();
             }
-            enqueue(e);
+
+            data[tailIndex] = e;
+            if (++tailIndex == data.length) {
+                tailIndex = 0;
+            }
+            if (SIZE_UPDATER.getAndIncrement(this) == 0) {
+                wasEmpty = true;
+            }
         } finally {
             tailLock.unlock();
+        }
+
+        if (wasEmpty) {
+            headLock.lock();
+            try {
+                isNotEmpty.signal();
+            } finally {
+                headLock.unlock();
+            }
         }
 
     }
@@ -146,6 +199,7 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
         checkNotNull(e);
         long nanos = unit.toNanos(timeout);
         tailLock.lockInterruptibly();
+        boolean wasEmpty = false;
         try {
             while (SIZE_UPDATER.get(this) == data.length) {
                 if (nanos <= 0) {
@@ -153,32 +207,67 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
                 }
                 nanos = isNotFull.awaitNanos(nanos);
             }
-            enqueue(e);
-            return true;
+
+            data[tailIndex] = e;
+            if (++tailIndex == data.length) {
+                tailIndex = 0;
+            }
+            if (SIZE_UPDATER.getAndIncrement(this) == 0) {
+                wasEmpty = true;
+            }
         } finally {
             tailLock.unlock();
         }
+
+        if (wasEmpty) {
+            headLock.lock();
+            try {
+                isNotEmpty.signal();
+            } finally {
+                headLock.unlock();
+            }
+        }
+        return true;
     }
 
     @Override
     public T take() throws InterruptedException {
         headLock.lockInterruptibly();
-
+        boolean wasFull = false;
+        T item;
         try {
             while (SIZE_UPDATER.get(this) == 0) {
                 isNotEmpty.await();
             }
 
-            return dequeue();
+            item = data[headIndex];
+            data[headIndex] = null;
+            if (++headIndex == data.length) {
+                headIndex = 0;
+            }
+            if (SIZE_UPDATER.getAndDecrement(this) == data.length) {
+                wasFull = true;
+            }
         } finally {
             headLock.unlock();
         }
+
+        if (wasFull) {
+            tailLock.lock();
+            try {
+                isNotFull.signal();
+            } finally {
+                tailLock.unlock();
+            }
+        }
+        return item;
     }
 
     @Override
     public T poll(long timeout, TimeUnit unit) throws InterruptedException {
         headLock.lockInterruptibly();
-
+        boolean wasFull = false;
+        T item;
         try {
             long nanos = unit.toNanos(timeout);
             while (SIZE_UPDATER.get(this) == 0) {
@@ -187,10 +276,28 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
                 }
                 nanos = isNotEmpty.awaitNanos(nanos);
             }
-            return dequeue();
+
+            item = data[headIndex];
+            data[headIndex] = null;
+            if (++headIndex == data.length) {
+                headIndex = 0;
+            }
+            if (SIZE_UPDATER.getAndDecrement(this) == data.length) {
+                wasFull = true;
+            }
         } finally {
             headLock.unlock();
         }
+
+        if (wasFull) {
+            tailLock.lock();
+            try {
+                isNotFull.signal();
+            } finally {
+                tailLock.unlock();
+            }
+        }
+        return item;
     }
 
     @Override
@@ -206,56 +313,86 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
     @Override
     public int drainTo(Collection<? super T> c, int maxElements) {
         headLock.lock();
+        boolean wasFull = false;
+        int drainedItems = 0;
 
         try {
-            int drainedItems = 0;
             int size = SIZE_UPDATER.get(this);
             while (size > 0 && drainedItems < maxElements) {
-                T item = data[headIndex.value];
-                data[headIndex.value] = null;
+                T item = data[headIndex];
+                data[headIndex] = null;
                 c.add(item);
 
-                headIndex.value = (headIndex.value + 1) & (data.length - 1);
+                if (++headIndex == data.length) {
+                    headIndex = 0;
+                }
                 --size;
                 ++drainedItems;
             }
 
-            if (SIZE_UPDATER.addAndGet(this, -drainedItems) > 0) {
-                isNotEmpty.signal();
+            if (SIZE_UPDATER.getAndAdd(this, -drainedItems) == data.length) {
+                wasFull = true;
             }
-            return drainedItems;
         } finally {
             headLock.unlock();
         }
+
+        if (wasFull) {
+            tailLock.lock();
+            try {
+                isNotFull.signalAll();
+            } finally {
+                tailLock.unlock();
+            }
+        }
+
+        return drainedItems;
     }
 
     @Override
     public void clear() {
         headLock.lock();
+        boolean wasFull = false;
 
         try {
             int size = SIZE_UPDATER.get(this);
 
             for (int i = 0; i < size; ++i) {
-                data[headIndex.value] = null;
-                headIndex.value = (headIndex.value + 1) & (data.length - 1);
+                data[headIndex] = null;
+                if (++headIndex == data.length) {
+                    headIndex = 0;
+                }
             }
 
-            if (SIZE_UPDATER.addAndGet(this, -size) > 0) {
-                isNotEmpty.signal();
+            if (SIZE_UPDATER.getAndAdd(this, -size) == data.length) {
+                wasFull = true;
             }
         } finally {
             headLock.unlock();
+        }
+
+        if (wasFull) {
+            tailLock.lock();
+            try {
+                isNotFull.signalAll();
+            } finally {
+                tailLock.unlock();
+            }
         }
     }
 
     @Override
     public boolean remove(Object o) {
+        if (o == null) {
+            return false;
+        }
+
         tailLock.lock();
         headLock.lock();
+        boolean wasFull = SIZE_UPDATER.get(this) == data.length;
 
         try {
-            int index = this.headIndex.value;
+            int index = this.headIndex;
             int size = this.size;
 
             for (int i = 0; i < size; ++i) {
@@ -263,10 +400,15 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
 
                 if (Objects.equals(item, o)) {
                     remove(index);
+                    if (wasFull) {
+                        isNotFull.signal();
+                    }
                     return true;
                 }
 
-                index = (index + 1) & (data.length - 1);
+                if (++index == data.length) {
+                    index = 0;
+                }
             }
         } finally {
             headLock.unlock();
@@ -276,19 +418,19 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
     }
 
     private void remove(int index) {
-        int tailIndex = this.tailIndex.value;
+        int tailIndex = this.tailIndex;
 
         if (index < tailIndex) {
             System.arraycopy(data, index + 1, data, index, tailIndex - index - 1);
-            this.tailIndex.value--;
+            this.tailIndex--;
         } else {
             System.arraycopy(data, index + 1, data, index, data.length - index - 1);
             data[data.length - 1] = data[0];
             if (tailIndex > 0) {
                 System.arraycopy(data, 1, data, 0, tailIndex);
-                this.tailIndex.value--;
+                this.tailIndex--;
             } else {
-                this.tailIndex.value = data.length - 1;
+                this.tailIndex = data.length - 1;
             }
         }
 
@@ -324,13 +466,15 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
         headLock.lock();
 
         try {
-            int headIndex = this.headIndex.value;
+            int headIndex = this.headIndex;
             int size = this.size;
 
             for (int i = 0; i < size; ++i) {
                 T item = data[headIndex];
                 action.accept(item);
-                headIndex = (headIndex + 1) & (data.length - 1);
+                if (++headIndex == data.length) {
+                    headIndex = 0;
+                }
             }
         } finally {
             headLock.unlock();
@@ -345,7 +489,7 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
         tailLock.lock();
         headLock.lock();
         try {
-            int headIndex = this.headIndex.value;
+            int headIndex = this.headIndex;
             int size = SIZE_UPDATER.get(this);
 
             sb.append('[');
@@ -355,7 +499,9 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
                     sb.append(", ");
                 }
                 sb.append(item);
-                headIndex = (headIndex + 1) & (data.length - 1);
+                if (++headIndex == data.length) {
+                    headIndex = 0;
+                }
             }
             sb.append(']');
         } finally {
@@ -371,18 +517,5 @@ public class StampedLockArrayBlockingQueue<T> extends AbstractQueue<T> implement
     private static void checkNotNull(Object v) {
         if (v == null)
             throw new NullPointerException();
-    }
-
-
-    static final class PaddedInt {
-        private int value;
-
-        // Padding to avoid false sharing
-        public volatile int pi1 = 1;
-        public volatile long p1 = 1L, p2 = 2L, p3 = 3L, p4 = 4L, p5 = 5L, p6 = 6L;
-
-        public long exposeToAvoidOptimization() {
-            return pi1 + p1 + p2 + p3 + p4 + p5 + p6;
-        }
     }
 }
