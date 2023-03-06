@@ -54,3 +54,7 @@ jobs:
       - name: Build website
         run: |
           ./site3/website/scripts/build-website.sh
+
+      - name: Setup tmate session
+        if: failure()
+        uses: mxschmitt/action-tmate@v3
