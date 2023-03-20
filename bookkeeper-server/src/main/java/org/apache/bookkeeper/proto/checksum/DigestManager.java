@@ -24,8 +24,8 @@ import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.util.ReferenceCountUtil;
-import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.ReferenceCounted;
+import io.netty.util.concurrent.FastThreadLocal;
 import java.security.GeneralSecurityException;
 import java.security.NoSuchAlgorithmException;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
@@ -110,7 +110,7 @@ public abstract class DigestManager {
     }
 
     private ReferenceCounted computeDigestAndPackageForSendingV2(long entryId, long lastAddConfirmed, long length,
-                                                            ByteBuf data, byte[] masterKey, int flags) {
+                                                                 ByteBuf data, byte[] masterKey, int flags) {
         boolean isSmallEntry = data.readableBytes() < BookieProtoEncoding.SMALL_ENTRY_SIZE_THRESHOLD;
 
         int headersSize = 4 // Request header
