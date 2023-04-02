@@ -123,6 +123,8 @@ public class BookieWriteLedgerTest extends
     @Override
     @Before
     public void setUp() throws Exception {
+        baseConf.setJournalWriteData(writeJournal);
+        baseClientConf.setUseV2WireProtocol(useV2);
         super.setUp();
         rng = new Random(0); // Initialize the Random
         // Number Generator
@@ -136,14 +138,12 @@ public class BookieWriteLedgerTest extends
         String ledgerManagerFactory = "org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory";
         // set ledger manager
         baseConf.setLedgerManagerFactoryClassName(ledgerManagerFactory);
-        baseConf.setJournalWriteData(writeJournal);
         /*
          * 'testLedgerCreateAdvWithLedgerIdInLoop2' testcase relies on skipListSizeLimit,
          * so setting it to some small value for making that testcase lite.
          */
         baseConf.setSkipListSizeLimit(4 * 1024 * 1024);
         baseClientConf.setLedgerManagerFactoryClassName(ledgerManagerFactory);
-        baseClientConf.setUseV2WireProtocol(useV2);
     }
 
     /**
@@ -1547,6 +1547,31 @@ public class BookieWriteLedgerTest extends
             }
             return localBuf;
         }
+
+    }
+
+    @Test
+    public void testReadWriteEntry() throws Exception {
+        lh = bkc.createLedgerAdv(1, 1, 1, digestType, ledgerPassword);
+        numEntriesToWrite = 10000;
+        List<byte[]> entries = new ArrayList<>();
+        CountDownLatch latch = new CountDownLatch(numEntriesToWrite);
+        for (int i = 0; i < numEntriesToWrite; ++i) {
+            ByteBuffer entry = ByteBuffer.allocate(4);
+            entry.putInt(rng.nextInt(maxInt));
+            entry.position(0);
+            entries.add(entry.array());
+            lh.asyncAddEntry(i, entry.array(), new AddCallback() {
+                @Override
+                public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
+                    assertEquals(0, rc);
+                    latch.countDown();
+                }
+            }, null);
+        }
+        latch.await();
+        readEntries(lh, entries);
+        lh.close();
 
     }
 }
