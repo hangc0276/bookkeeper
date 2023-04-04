@@ -867,7 +867,7 @@ public class ClientConfiguration extends AbstractConfiguration<ClientConfigurati
      * @return The configured groupReadWriteResponses value
      */
     public boolean getGroupReadWriteResponses() {
-        return getBoolean(GROUP_READ_WRITE_RESPONSES, false);
+        return getBoolean(GROUP_READ_WRITE_RESPONSES, true);
     }
 
     /**
