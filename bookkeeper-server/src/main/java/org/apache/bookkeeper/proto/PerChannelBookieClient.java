@@ -1231,17 +1231,18 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         }
 
         final long startTime = MathUtils.nowInNano();
-        ObjectSet<CompletionKey> keys = new ObjectHashSet<>(pendingSendKeys);
+        //ObjectSet<CompletionKey> keys = new ObjectHashSet<>(pendingSendKeys);
         ChannelPromise promise = channel.newPromise().addListener(future -> {
             if (future.isSuccess()) {
                 nettyOpLogger.registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
+                /*
                 keys.forEach((ObjectProcedure<? super CompletionKey>) k -> {
                     CompletionValue completion = completionObjects.get(k);
                     if (completion != null) {
                         completion.setOutstanding();
                     }
                 });
-
+                 */
             } else {
                 nettyOpLogger.registerFailedEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
             }

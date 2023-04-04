@@ -1574,29 +1574,4 @@ public class BookieWriteLedgerTest extends
         }
 
     }
-
-    @Test
-    public void testReadWriteEntry() throws Exception {
-        lh = bkc.createLedgerAdv(1, 1, 1, digestType, ledgerPassword);
-        numEntriesToWrite = 10000;
-        List<byte[]> entries = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(numEntriesToWrite);
-        for (int i = 0; i < numEntriesToWrite; ++i) {
-            ByteBuffer entry = ByteBuffer.allocate(4);
-            entry.putInt(rng.nextInt(maxInt));
-            entry.position(0);
-            entries.add(entry.array());
-            lh.asyncAddEntry(i, entry.array(), new AddCallback() {
-                @Override
-                public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
-                    assertEquals(0, rc);
-                    latch.countDown();
-                }
-            }, null);
-        }
-        latch.await();
-        readEntries(lh, entries);
-        lh.close();
-
-    }
 }
