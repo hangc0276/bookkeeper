@@ -62,5 +62,10 @@ public class BKExceptionTest {
                                     BKException.Code.ReadException));
 
     }
+
+    @Test
+    public void testTrigger() {
+        // for trigger CI
+    }
 }
 
