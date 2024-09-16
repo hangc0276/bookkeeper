@@ -200,6 +200,10 @@ jobs:
           path: surefire-reports
           retention-days: 7
 
+      - name: Setup tmate session
+        if: failure()
+        uses: mxschmitt/action-tmate@v3
+
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
