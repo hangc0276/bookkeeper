@@ -23,10 +23,7 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -34,7 +31,9 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.LongAdder;
 import lombok.CustomLog;
 import lombok.SneakyThrows;
-import org.apache.bookkeeper.common.collections.GrowableMpScArrayConsumerBlockingQueue;
+import org.apache.bookkeeper.common.collections.BatchedArrayBlockingQueue;
+import org.apache.bookkeeper.common.collections.BatchedBlockingQueue;
+import org.apache.bookkeeper.common.collections.GrowableBatchedArrayBlockingQueue;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.StatsLogger;
 
@@ -45,8 +44,11 @@ import org.apache.bookkeeper.stats.StatsLogger;
  * proceed with the next tasks.
  */
 @CustomLog
-public class SingleThreadExecutor extends AbstractExecutorService implements ExecutorService, Runnable {
-    private final BlockingQueue<Runnable> queue;
+public class SingleThreadExecutor extends AbstractExecutorService implements ThreadBoundExecutor, Runnable {
+
+    private static final int MAX_DRAIN_BATCH_SIZE = 1024;
+
+    private final BatchedBlockingQueue<Runnable> queue;
     private final Thread runner;
 
     private final boolean rejectExecution;
@@ -83,9 +85,9 @@ public class SingleThreadExecutor extends AbstractExecutorService implements Exe
         }
 
         if (maxQueueCapacity > 0) {
-            this.queue = new ArrayBlockingQueue<>(maxQueueCapacity);
+            this.queue = new BatchedArrayBlockingQueue<>(maxQueueCapacity);
         } else {
-            this.queue = new GrowableMpScArrayConsumerBlockingQueue<>();
+            this.queue = new GrowableBatchedArrayBlockingQueue<>();
         }
         this.maxQueueCapacity = maxQueueCapacity;
 
@@ -102,7 +104,10 @@ public class SingleThreadExecutor extends AbstractExecutorService implements Exe
     public void run() {
         try {
             boolean isInitialized = false;
-            List<Runnable> localTasks = new ArrayList<>();
+            int batchSize = maxQueueCapacity > 0
+                    ? Math.min(maxQueueCapacity, MAX_DRAIN_BATCH_SIZE)
+                    : MAX_DRAIN_BATCH_SIZE;
+            Runnable[] localTasks = new Runnable[batchSize];
 
             while (state == State.Running) {
                 if (!isInitialized) {
@@ -110,25 +115,20 @@ public class SingleThreadExecutor extends AbstractExecutorService implements Exe
                     isInitialized = true;
                 }
 
-                int n = queue.drainTo(localTasks);
-                if (n > 0) {
-                    for (int i = 0; i < n; i++) {
-                        if (!safeRunTask(localTasks.get(i))) {
-                            return;
-                        }
-                    }
-                    localTasks.clear();
-                } else {
-                    if (!safeRunTask(queue.take())) {
+                int n = queue.takeAll(localTasks);
+                for (int i = 0; i < n; i++) {
+                    Runnable task = localTasks[i];
+                    localTasks[i] = null;
+                    if (!runQueuedTask(task)) {
                         return;
                     }
                 }
             }
 
             // Clear the queue in orderly shutdown
-            int n = queue.drainTo(localTasks);
-            for (int i = 0; i < n; i++) {
-                safeRunTask(localTasks.get(i));
+            Runnable task;
+            while ((task = queue.poll()) != null) {
+                runQueuedTask(task);
             }
         } catch (InterruptedException ie) {
             // Exit loop when interrupted
@@ -141,6 +141,19 @@ public class SingleThreadExecutor extends AbstractExecutorService implements Exe
         }
     }
 
+    private boolean runQueuedTask(Runnable r) {
+        try {
+            return safeRunTask(r);
+        } finally {
+            decrementPendingTaskCount(1);
+        }
+    }
+
+    /**
+     * Runs a task, logging and counting a failure instead of propagating it.
+     *
+     * @return false when the task was interrupted
+     */
     private boolean safeRunTask(Runnable r) {
         try {
             r.run();
@@ -153,8 +166,6 @@ public class SingleThreadExecutor extends AbstractExecutorService implements Exe
                 tasksFailed.increment();
                 log.error().exception(t).log("Error while running task");
             }
-        } finally {
-            decrementPendingTaskCount(1);
         }
 
         return true;
@@ -217,6 +228,30 @@ public class SingleThreadExecutor extends AbstractExecutorService implements Exe
     @Override
     public void execute(Runnable r) {
         executeRunnableOrList(r, null);
+    }
+
+    @Override
+    public boolean isCurrentThread() {
+        return Thread.currentThread() == runner;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Failures of an inline run are logged and counted like those of queued tasks.
+     */
+    @Override
+    public void executeOrRun(Runnable r) {
+        if (state != State.Running) {
+            throw new RejectedExecutionException("Executor is shutting down");
+        }
+
+        if (isCurrentThread()) {
+            tasksCount.increment();
+            safeRunTask(r);
+        } else {
+            execute(r);
+        }
     }
 
     @VisibleForTesting

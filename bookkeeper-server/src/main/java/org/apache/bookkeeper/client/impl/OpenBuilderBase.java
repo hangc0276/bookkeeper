@@ -36,7 +36,9 @@ public abstract class OpenBuilderBase implements OpenBuilder {
     protected long ledgerId = LedgerHandle.INVALID_LEDGER_ID;
     protected byte[] password;
     protected DigestType digestType = DigestType.CRC32;
+    protected boolean keepUpdateMetadata = false;
     protected Logger parentLogger;
+    protected Object orderingKey;
 
     @Override
     public OpenBuilder withLedgerId(long ledgerId) {
@@ -63,8 +65,20 @@ public abstract class OpenBuilderBase implements OpenBuilder {
     }
 
     @Override
+    public OpenBuilder withKeepUpdateMetadata(boolean keepUpdateMetadata) {
+        this.keepUpdateMetadata = keepUpdateMetadata;
+        return this;
+    }
+
+    @Override
     public OpenBuilder withLoggerContext(Logger parentLogger) {
         this.parentLogger = parentLogger;
+        return this;
+    }
+
+    @Override
+    public OpenBuilder withOrderingKey(Object orderingKey) {
+        this.orderingKey = orderingKey;
         return this;
     }
 
